@@ -13,7 +13,7 @@ def main():
     prompt = f"この文章に不適切な表現が含まれているか判定してください: {text_to_check}"
     
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt
     )
     print(f"【判定結果】\n{response.text}")
