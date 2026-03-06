@@ -3,28 +3,31 @@ name: Run AI Police Agent
 on:
   workflow_dispatch:
     inputs:
-      target_text:
-        description: 'チェックしたい文章を入力してください'
+      video_url:
+        description: "YouTube動画URL"
         required: true
-        default: 'ここに文章を入れてください'
 
 jobs:
-  moderation:
+  build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install google-genai
+        run: |
+          pip install --upgrade pip
+          pip install google-genai requests
 
-      - name: Run AI Police Agent
+      - name: Run script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TARGET_TEXT: ${{ github.event.inputs.target_text }}
-        run: python monitor.py
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          VIDEO_URL: ${{ github.event.inputs.video_url }}
+        run: python youtube_monitor.py
