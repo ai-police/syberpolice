@@ -6,11 +6,9 @@ from collections import Counter
 from googleapiclient.discovery import build
 import google.generativeai as genai
 
-
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 VIDEO_URL = os.getenv("VIDEO_URL")
-
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
@@ -76,13 +74,15 @@ def gemini_request(prompt):
         try:
 
             r = model.generate_content(prompt)
+
             return r.text.strip()
 
         except Exception as e:
 
             retry += 1
             print("Geminiエラー:", e)
-            print("40秒待機")
+            print("40秒待機...")
+
             time.sleep(40)
 
     return ""
@@ -102,7 +102,7 @@ def analyze(comments):
 {joined}
 
 番号だけ出してください
-例 2,5,8
+例: 2,5,8
 """
 
     result = gemini_request(prompt)
@@ -145,9 +145,13 @@ def build_ranking(flagged):
 
 def main():
 
-    vid = extract_video_id(VIDEO_URL)
+    video_id = extract_video_id(VIDEO_URL)
 
-    comments = get_comments(vid)
+    print("動画ID:", video_id)
+
+    comments = get_comments(video_id)
+
+    print("取得コメント:", len(comments))
 
     flagged = analyze(comments)
 
@@ -158,14 +162,13 @@ def main():
         "ranking": ranking
     }
 
-    with open("report.json","w",encoding="utf-8") as f:
+    with open("report.json", "w", encoding="utf-8") as f:
 
-        json.dump(report,f,indent=2,ensure_ascii=False)
+        json.dump(report, f, indent=2, ensure_ascii=False)
 
-    print("report.json生成")
+    print("report.json生成完了")
 
 
 if __name__ == "__main__":
     main()
-
 
