@@ -2,28 +2,22 @@ import os
 import json
 import time
 import re
+from collections import Counter
 from googleapiclient.discovery import build
 import google.generativeai as genai
 
 
-# ===== 環境変数 =====
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 VIDEO_URL = os.getenv("VIDEO_URL")
 
 
-# ===== Gemini =====
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
-
-# ===== YouTube API =====
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
 
-# =========================
-# 動画ID抽出（完全版）
-# =========================
 def extract_video_id(url):
 
     patterns = [
@@ -31,47 +25,48 @@ def extract_video_id(url):
         r"youtu\.be/([^?&]+)"
     ]
 
-    for pattern in patterns:
-
-        match = re.search(pattern, url)
-
-        if match:
-            return match.group(1)
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
 
     return url
 
 
-# =========================
-# コメント取得
-# =========================
 def get_comments(video_id):
 
     comments = []
+    next_page = None
 
-    request = youtube.commentThreads().list(
-        part="snippet",
-        videoId=video_id,
-        maxResults=50,
-        textFormat="plainText"
-    )
+    while len(comments) < 1000:
 
-    response = request.execute()
+        req = youtube.commentThreads().list(
+            part="snippet",
+            videoId=video_id,
+            maxResults=100,
+            pageToken=next_page,
+            textFormat="plainText"
+        )
 
-    for item in response["items"]:
+        res = req.execute()
 
-        snippet = item["snippet"]["topLevelComment"]["snippet"]
+        for item in res["items"]:
 
-        comments.append({
-            "author": snippet["authorDisplayName"],
-            "text": snippet["textDisplay"]
-        })
+            s = item["snippet"]["topLevelComment"]["snippet"]
+
+            comments.append({
+                "author": s["authorDisplayName"],
+                "text": s["textDisplay"]
+            })
+
+        next_page = res.get("nextPageToken")
+
+        if not next_page:
+            break
 
     return comments
 
 
-# =========================
-# Geminiリトライ
-# =========================
 def gemini_request(prompt):
 
     retry = 0
@@ -80,54 +75,42 @@ def gemini_request(prompt):
 
         try:
 
-            response = model.generate_content(prompt)
-
-            return response.text.strip()
+            r = model.generate_content(prompt)
+            return r.text.strip()
 
         except Exception as e:
 
             retry += 1
-
             print("Geminiエラー:", e)
-            print("40秒待機...")
-
+            print("40秒待機")
             time.sleep(40)
 
     return ""
 
 
-# =========================
-# AI分析
-# =========================
-def analyze_comments(comments):
+def analyze(comments):
 
     texts = [c["text"] for c in comments]
 
     joined = "\n".join(
-        [f"{i+1}. {t}" for i, t in enumerate(texts)]
+        [f"{i+1}. {t}" for i, t in enumerate(texts[:50])]
     )
 
     prompt = f"""
-次のYouTubeコメントから誹謗中傷を抽出してください。
+次のコメントから誹謗中傷を抽出してください
 
 {joined}
 
-番号だけをカンマ区切りで出してください
-例: 2,5,8
+番号だけ出してください
+例 2,5,8
 """
 
-    return gemini_request(prompt)
-
-
-# =========================
-# レポート作成
-# =========================
-def create_report(comments, result):
+    result = gemini_request(prompt)
 
     indexes = []
 
     try:
-        indexes = [int(x.strip()) - 1 for x in result.split(",")]
+        indexes = [int(x)-1 for x in result.split(",")]
     except:
         pass
 
@@ -137,42 +120,52 @@ def create_report(comments, result):
 
         if 0 <= i < len(comments):
 
-            flagged.append({
-                "author": comments[i]["author"],
-                "comment": comments[i]["text"]
-            })
+            flagged.append(comments[i])
 
-    report = {
-        "flagged_count": len(flagged),
-        "comments": flagged
-    }
-
-    with open("report.json", "w", encoding="utf-8") as f:
-
-        json.dump(report, f, indent=2, ensure_ascii=False)
+    return flagged
 
 
-# =========================
-# main
-# =========================
+def build_ranking(flagged):
+
+    authors = [c["author"] for c in flagged]
+
+    counter = Counter(authors)
+
+    ranking = []
+
+    for user, count in counter.most_common():
+
+        ranking.append({
+            "user": user,
+            "count": count
+        })
+
+    return ranking
+
+
 def main():
 
-    video_id = extract_video_id(VIDEO_URL)
+    vid = extract_video_id(VIDEO_URL)
 
-    print("動画ID:", video_id)
+    comments = get_comments(vid)
 
-    comments = get_comments(video_id)
+    flagged = analyze(comments)
 
-    print("取得コメント:", len(comments))
+    ranking = build_ranking(flagged)
 
-    result = analyze_comments(comments)
+    report = {
+        "flagged_comments": flagged,
+        "ranking": ranking
+    }
 
-    print("AI結果:", result)
+    with open("report.json","w",encoding="utf-8") as f:
 
-    create_report(comments, result)
+        json.dump(report,f,indent=2,ensure_ascii=False)
 
-    print("完了")
+    print("report.json生成")
 
 
 if __name__ == "__main__":
     main()
+
+
