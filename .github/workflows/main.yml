@@ -32,5 +32,9 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-      - name: Show report
-        run: python report_viewer.py
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyberpolice-report
+          path: report.json
+         
