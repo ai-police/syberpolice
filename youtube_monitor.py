@@ -1,58 +1,37 @@
 import os
+import json
 import google.generativeai as genai
 from googleapiclient.discovery import build
 
-# =========================
-# APIキー設定
-# =========================
-
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+VIDEO_URL = os.getenv("VIDEO_URL")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-youtube = build(
-    "youtube",
-    "v3",
-    developerKey=YOUTUBE_API_KEY
-)
-
+youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 
-# =========================
-# URLから動画IDを取得
-# =========================
-
 def extract_video_id(url):
-
     if "watch?v=" in url:
         video_id = url.split("watch?v=")[1]
-
     elif "youtu.be/" in url:
         video_id = url.split("youtu.be/")[1]
-
     else:
         video_id = url
 
-    # ?以降を削除
-    video_id = video_id.split("?")[0]
-
-    return video_id
+    return video_id.split("?")[0]
 
 
-# =========================
-# コメント取得
-# =========================
-
-def get_comments(video_id, max_results=50):
+def get_comments(video_id):
 
     comments = []
 
     request = youtube.commentThreads().list(
         part="snippet",
         videoId=video_id,
-        maxResults=max_results,
+        maxResults=50,
         textFormat="plainText"
     )
 
@@ -60,80 +39,78 @@ def get_comments(video_id, max_results=50):
 
     for item in response["items"]:
 
-        comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+        snippet = item["snippet"]["topLevelComment"]["snippet"]
 
-        comments.append(comment)
+        comments.append({
+            "author": snippet["authorDisplayName"],
+            "text": snippet["textDisplay"]
+        })
 
     return comments
 
 
-# =========================
-# AI誹謗中傷判定（まとめて）
-# =========================
-
 def analyze_comments(comments):
 
-    joined_comments = "\n".join(
-        [f"{i+1}. {c}" for i, c in enumerate(comments)]
+    texts = [c["text"] for c in comments]
+
+    joined = "\n".join(
+        [f"{i+1}. {t}" for i, t in enumerate(texts)]
     )
 
     prompt = f"""
-次のYouTubeコメントの中から誹謗中傷・差別・攻撃的なコメントだけを抽出してください。
+次のYouTubeコメントから誹謗中傷を抽出してください
 
-コメント一覧:
-{joined_comments}
+{joined}
 
-出力形式:
-番号とコメントをそのまま出してください。
+番号だけ出してください
+例: 2,5,8
 """
 
+    response = model.generate_content(prompt)
+
+    return response.text.strip()
+
+
+def create_report(comments, result):
+
+    indexes = []
+
     try:
+        indexes = [int(x)-1 for x in result.split(",")]
+    except:
+        pass
 
-        response = model.generate_content(prompt)
+    flagged = []
 
-        return response.text
+    for i in indexes:
+        if i < len(comments):
 
-    except Exception as e:
+            flagged.append({
+                "author": comments[i]["author"],
+                "comment": comments[i]["text"]
+            })
 
-        return f"AI判定エラー: {e}"
+    report = {
+        "count": len(flagged),
+        "comments": flagged
+    }
 
+    with open("report.json","w",encoding="utf-8") as f:
+        json.dump(report,f,indent=2,ensure_ascii=False)
 
-# =========================
-# メイン処理
-# =========================
 
 def main():
 
-    url = os.getenv("VIDEO_URL")
-
-    if not url:
-        print("VIDEO_URL が設定されていません")
-        return
-
-    print("動画URL:", url)
-
-    video_id = extract_video_id(url)
-
-    print("動画ID:", video_id)
-
-    print("コメント取得中...")
+    video_id = extract_video_id(VIDEO_URL)
 
     comments = get_comments(video_id)
 
-    print(f"{len(comments)}件のコメント取得")
-
-    print("AI分析中...")
-
     result = analyze_comments(comments)
 
-    print("\n===== 検出された問題コメント =====\n")
+    create_report(comments,result)
 
-    print(result)
+    print("AI検知完了")
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
