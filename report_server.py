@@ -43,7 +43,7 @@ html = """
 
 def home():
 
-    with open("report.json",encoding="utf-8") as f:
+    with open("report.json", encoding="utf-8") as f:
         data = json.load(f)
 
     return render_template_string(
