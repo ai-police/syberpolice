@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import re
 from googleapiclient.discovery import build
 import google.generativeai as genai
 
@@ -10,29 +11,34 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 VIDEO_URL = os.getenv("VIDEO_URL")
 
-# ===== Gemini設定 =====
+
+# ===== Gemini =====
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
+
 
 # ===== YouTube API =====
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
 
 # =========================
-# 動画ID取得
+# 動画ID抽出（完全版）
 # =========================
 def extract_video_id(url):
 
-    if "watch?v=" in url:
-        video_id = url.split("watch?v=")[1]
+    patterns = [
+        r"v=([^&]+)",
+        r"youtu\.be/([^?&]+)"
+    ]
 
-    elif "youtu.be/" in url:
-        video_id = url.split("youtu.be/")[1]
+    for pattern in patterns:
 
-    else:
-        video_id = url
+        match = re.search(pattern, url)
 
-    return video_id.split("&")[0]
+        if match:
+            return match.group(1)
+
+    return url
 
 
 # =========================
@@ -64,14 +70,13 @@ def get_comments(video_id):
 
 
 # =========================
-# Geminiリトライ関数
+# Geminiリトライ
 # =========================
 def gemini_request(prompt):
 
     retry = 0
-    max_retry = 5
 
-    while retry < max_retry:
+    while retry < 5:
 
         try:
 
@@ -83,17 +88,16 @@ def gemini_request(prompt):
 
             retry += 1
 
-            print("Gemini APIエラー:", e)
-            print("40秒待機して再試行...")
+            print("Geminiエラー:", e)
+            print("40秒待機...")
 
             time.sleep(40)
 
-    print("最大リトライ回数に到達")
     return ""
 
 
 # =========================
-# AIコメント分析
+# AI分析
 # =========================
 def analyze_comments(comments):
 
@@ -108,16 +112,11 @@ def analyze_comments(comments):
 
 {joined}
 
-誹謗中傷と思われるコメントの番号だけを
-カンマ区切りで出してください。
-
-例:
-2,5,8
+番号だけをカンマ区切りで出してください
+例: 2,5,8
 """
 
-    result = gemini_request(prompt)
-
-    return result
+    return gemini_request(prompt)
 
 
 # =========================
@@ -129,15 +128,14 @@ def create_report(comments, result):
 
     try:
         indexes = [int(x.strip()) - 1 for x in result.split(",")]
-
     except:
-        indexes = []
+        pass
 
     flagged = []
 
     for i in indexes:
 
-        if i < len(comments):
+        if 0 <= i < len(comments):
 
             flagged.append({
                 "author": comments[i]["author"],
@@ -153,17 +151,11 @@ def create_report(comments, result):
 
         json.dump(report, f, indent=2, ensure_ascii=False)
 
-    print("report.json作成完了")
-
 
 # =========================
-# メイン
+# main
 # =========================
 def main():
-
-    if not VIDEO_URL:
-        print("VIDEO_URLが設定されていません")
-        return
 
     video_id = extract_video_id(VIDEO_URL)
 
@@ -171,19 +163,15 @@ def main():
 
     comments = get_comments(video_id)
 
-    print("取得コメント数:", len(comments))
-
-    if len(comments) == 0:
-        print("コメントがありません")
-        return
+    print("取得コメント:", len(comments))
 
     result = analyze_comments(comments)
 
-    print("AI解析結果:", result)
+    print("AI結果:", result)
 
     create_report(comments, result)
 
-    print("AI検知完了")
+    print("完了")
 
 
 if __name__ == "__main__":
