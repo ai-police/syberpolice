@@ -1,5 +1,4 @@
 import os
-import requests
 import google.generativeai as genai
 from googleapiclient.discovery import build
 
@@ -28,12 +27,18 @@ model = genai.GenerativeModel("gemini-2.5-flash")
 def extract_video_id(url):
 
     if "watch?v=" in url:
-        return url.split("watch?v=")[1].split("&")[0]
+        video_id = url.split("watch?v=")[1]
 
-    if "youtu.be/" in url:
-        return url.split("youtu.be/")[1]
+    elif "youtu.be/" in url:
+        video_id = url.split("youtu.be/")[1]
 
-    return url
+    else:
+        video_id = url
+
+    # ?以降を削除
+    video_id = video_id.split("?")[0]
+
+    return video_id
 
 
 # =========================
@@ -101,7 +106,15 @@ def main():
 
     url = os.getenv("VIDEO_URL")
 
+    if not url:
+        print("VIDEO_URL が設定されていません")
+        return
+
+    print("動画URL:", url)
+
     video_id = extract_video_id(url)
+
+    print("動画ID:", video_id)
 
     print("コメント取得中...")
 
@@ -113,11 +126,14 @@ def main():
 
     result = analyze_comments(comments)
 
-    print("\n=== 検出された問題コメント ===\n")
+    print("\n===== 検出された問題コメント =====\n")
 
     print(result)
 
 
 if __name__ == "__main__":
     main()
+
+
+
 
