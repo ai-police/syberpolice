@@ -1,113 +1,121 @@
 import os
 import requests
-from urllib.parse import urlparse, parse_qs
-from google import genai
+import google.generativeai as genai
+from googleapiclient.discovery import build
 
-# 環境変数（GitHub Actionsから渡される）
+# =========================
+# APIキー設定
+# =========================
+
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-VIDEO_URL = os.getenv("VIDEO_URL")
+
+genai.configure(api_key=GEMINI_API_KEY)
+
+youtube = build(
+    "youtube",
+    "v3",
+    developerKey=YOUTUBE_API_KEY
+)
+
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 
-# YouTube URLからVIDEO_IDを取得
+# =========================
+# URLから動画IDを取得
+# =========================
+
 def extract_video_id(url):
 
-    parsed_url = urlparse(url)
+    if "watch?v=" in url:
+        return url.split("watch?v=")[1].split("&")[0]
 
-    if "youtube.com" in parsed_url.netloc:
-        return parse_qs(parsed_url.query).get("v", [None])[0]
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[1]
 
-    elif "youtu.be" in parsed_url.netloc:
-        return parsed_url.path[1:]
-
-    return None
+    return url
 
 
+# =========================
 # コメント取得
-def get_comments(video_id):
+# =========================
 
-    url = "https://www.googleapis.com/youtube/v3/commentThreads"
-
-    params = {
-        "part": "snippet",
-        "videoId": video_id,
-        "key": YOUTUBE_API_KEY,
-        "maxResults": 20
-    }
-
-    res = requests.get(url, params=params)
-    data = res.json()
+def get_comments(video_id, max_results=50):
 
     comments = []
 
-    for item in data.get("items", []):
-        text = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
-        comments.append(text)
+    request = youtube.commentThreads().list(
+        part="snippet",
+        videoId=video_id,
+        maxResults=max_results,
+        textFormat="plainText"
+    )
+
+    response = request.execute()
+
+    for item in response["items"]:
+
+        comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+
+        comments.append(comment)
 
     return comments
 
 
-# AI判定
-def analyze_comment(comment):
+# =========================
+# AI誹謗中傷判定（まとめて）
+# =========================
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+def analyze_comments(comments):
 
-    prompt = f"""
-次のコメントが誹謗中傷・攻撃的・ヘイトか判定してください。
-
-コメント:
-{comment}
-
-結果は必ず次のどちらかだけで答えてください
-
-危険
-安全
-"""
-
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
+    joined_comments = "\n".join(
+        [f"{i+1}. {c}" for i, c in enumerate(comments)]
     )
 
-    return response.text.strip()
+    prompt = f"""
+次のYouTubeコメントの中から誹謗中傷・差別・攻撃的なコメントだけを抽出してください。
 
+コメント一覧:
+{joined_comments}
+
+出力形式:
+番号とコメントをそのまま出してください。
+"""
+
+    try:
+
+        response = model.generate_content(prompt)
+
+        return response.text
+
+    except Exception as e:
+
+        return f"AI判定エラー: {e}"
+
+
+# =========================
+# メイン処理
+# =========================
 
 def main():
 
-    if not VIDEO_URL:
-        print("VIDEO_URL が設定されていません")
-        return
+    url = input("チェックしたいYouTube動画のURLを入力してください: ")
 
-    video_id = extract_video_id(VIDEO_URL)
+    video_id = extract_video_id(url)
 
-    if not video_id:
-        print("動画URLが正しくありません")
-        return
-
-    print("動画ID:", video_id)
-    print("コメント取得中...\n")
+    print("コメント取得中...")
 
     comments = get_comments(video_id)
 
-    if not comments:
-        print("コメントが取得できませんでした")
-        return
+    print(f"{len(comments)}件のコメント取得")
 
-    print("危険コメント一覧\n")
+    print("AI分析中...")
 
-    for comment in comments:
+    result = analyze_comments(comments)
 
-        try:
+    print("\n=== 検出された問題コメント ===\n")
 
-            result = analyze_comment(comment)
-
-            if "危険" in result:
-                print("⚠️", comment)
-                print("----------------")
-
-        except Exception as e:
-
-            print("AI判定エラー:", e)
+    print(result)
 
 
 if __name__ == "__main__":
