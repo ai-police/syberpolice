@@ -99,7 +99,7 @@ def analyze_comments(comments):
 
 def main():
 
-    url = input("チェックしたいYouTube動画のURLを入力してください: ")
+    url = os.getenv("VIDEO_URL")
 
     video_id = extract_video_id(url)
 
